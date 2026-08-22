@@ -1,0 +1,4 @@
+.qwen/
+.env
+*.log
+.DS_Store

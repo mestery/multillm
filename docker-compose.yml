@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+name: multillm
+
+services:
+  llmrouter:
+    image: llm-router/llm-router:latest
+    container_name: llmrouter
+    restart: unless-stopped
+    ports:
+      - "${LLMROUTER_HOST_PORT:-9000}:8000"
+    environment:
+      LLM_ROUTER_HOST: "0.0.0.0"
+      LLM_ROUTER_PORT: "8000"
+      LLM_ROUTER_LOG_LEVEL: "info"
+    volumes:
+      - ./llm-router/config:/root/.llm-router/config
+    # Lets the container reach backends running natively on the host
+    # (MTPLX, LM Studio) via http://host.docker.internal on any platform.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "${OPENWEBUI_HOST_PORT:-3000}:8080"
+    environment:
+      OPENAI_API_BASE_URL: "http://llmrouter:8000/v1"
+      OPENAI_API_KEY: "${LLMROUTER_API_KEY:-}"
+      WEBUI_AUTH: "${WEBUI_AUTH:-true}"
+      ENABLE_OLLAMA_API: "false"
+    volumes:
+      - open-webui-data:/app/data
+    depends_on:
+      - llmrouter
+
+volumes:
+  open-webui-data:
