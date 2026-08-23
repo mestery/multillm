@@ -2,3 +2,5 @@
 .env
 *.log
 .DS_Store
+llm-router/config/
+llm-router/config.yaml

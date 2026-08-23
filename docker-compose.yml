@@ -2,6 +2,24 @@
 name: multillm
 
 services:
+  # One-shot job: renders llm-router/config.yaml from the BACKEND_* vars in
+  # .env (see scripts/render-config.sh) before the router starts.
+  llmrouter-init:
+    image: alpine:3.20
+    container_name: llmrouter-init
+    restart: "no"
+    # Optional: without .env the render fails with a clear message instead
+    # of breaking every compose command on a fresh clone.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CONFIG_OUT: /config/config.yaml
+    entrypoint: ["sh", "/opt/render-config.sh"]
+    volumes:
+      - ./scripts/render-config.sh:/opt/render-config.sh:ro
+      - ./llm-router/config:/config
+
   llmrouter:
     image: llm-router/llm-router:latest
     container_name: llmrouter
@@ -15,9 +33,12 @@ services:
     volumes:
       - ./llm-router/config:/root/.llm-router/config
     # Lets the container reach backends running natively on the host
-    # (MTPLX, LM Studio) via http://host.docker.internal on any platform.
+    # (MTPLX, LM Studio, oMLX) via http://host.docker.internal on any platform.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      llmrouter-init:
+        condition: service_completed_successfully
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
@@ -27,7 +48,7 @@ services:
       - "${OPENWEBUI_HOST_PORT:-3000}:8080"
     environment:
       OPENAI_API_BASE_URL: "http://llmrouter:8000/v1"
-      OPENAI_API_KEY: "${LLMROUTER_API_KEY:-}"
+      OPENAI_API_KEY: "${ROUTER_API_KEY:-}"
       WEBUI_AUTH: "${WEBUI_AUTH:-true}"
       ENABLE_OLLAMA_API: "false"
     volumes:
