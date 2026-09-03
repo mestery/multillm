@@ -4,16 +4,15 @@ A multi-user LLM stack built from open-source parts:
 
 - **Backend** — one or more [MTPLX](https://github.com/youssofal/MTPLX),
   [LM Studio](https://lmstudio.ai), and/or [oMLX](https://github.com/jundot/omlx)
-  servers, running natively on the host (Apple Silicon) and configured via
-  `.env`.
-- **Router** — [LLMRouter](https://github.com/llm-router/llm-router), an
+  servers, running natively on the host (Apple Silicon).
+- **Router** — [LiteLLM](https://github.com/BerriAI/litellm), an
   OpenAI-compatible proxy that aggregates the backends, balances load between
   them, and gates access with API keys. Runs in Docker.
 - **UI** — [Open WebUI](https://open-webui.com/), a multi-user chat interface
   with accounts, permissions, and per-user settings. Runs in Docker.
 
-The router and UI are brought up with `docker compose`; the LLMRouter config
-is rendered from your `.env` on every start.
+The router and UI are brought up with `docker compose`; the LiteLLM config is
+rendered from your `.env` on every start via `scripts/render-config.sh`.
 
 ## Architecture
 
@@ -25,8 +24,8 @@ is rendered from your `.env` on every start.
         ^ OpenAI-compatible /v1
         |
 +-------+---------+  docker
-| LLMRouter :9000 |  (container port 8000)
-+-------+---------+
+| LiteLLM :4000   |  (container port 4000)
++-----------------+
         ^ OpenAI-compatible /v1
         |
 +-------+---------+  docker
@@ -44,7 +43,7 @@ is rendered from your `.env` on every start.
   - **MTPLX**: `mtplx serve --port 8000` (base URL `http://<host>:8000/v1`)
   - **LM Studio**: Developer tab → *Start Server* (default port `1234`, base URL `http://<host>:1234/v1`)
   - **oMLX**: `omlx serve --model-dir ~/models` (default port `8000`, no API key unless started with `--api-key`)
-- Port 9000 and 3000 free on the host (the defaults used below).
+- Port 9001 and 3000 free on the host (the defaults used below).
 
 ## Quickstart
 
@@ -53,13 +52,13 @@ cp .env.example .env        # review ports, router key, and backends
 docker compose up -d
 
 # Open WebUI:  http://localhost:3000   (create the first admin account)
-# LLMRouter:   http://localhost:9000   (manage API keys and model groups)
+# LiteLLM:     http://localhost:9001   (health check at /health)
 ```
 
 On start, a one-shot `llmrouter-init` container renders
 `llm-router/config.yaml` from the `BACKEND_*` variables in `.env`, then the
 router comes up. Open WebUI is pre-wired to talk to the router
-(`http://llmrouter:8000/v1`) using `ROUTER_API_KEY` from the same file.
+(`http://llmrouter:4000/v1`) using `ROUTER_API_KEY` from the same file.
 After the first admin sign-up, the models served by whichever backends are
 up appear in the UI.
 
@@ -72,13 +71,13 @@ gitignored — change `.env`, not `.env.example`).
 
 | Variable              | Default | Meaning                                                    |
 | --------------------- | ------- | ---------------------------------------------------------- |
-| `LLMROUTER_HOST_PORT` | `9000`  | Host port for LLMRouter (container always uses 8000)       |
+| `LLMROUTER_HOST_PORT` | `9001`  | Host port for LiteLLM (container always uses 4000)         |
 | `OPENWEBUI_HOST_PORT` | `3000`  | Host port for Open WebUI (container always uses 8080)      |
-| `ROUTER_API_KEY`      | —       | Key Open WebUI uses against LLMRouter (required)           |
+| `ROUTER_API_KEY`      | —       | Key Open WebUI uses against LiteLLM (required)             |
 | `WEBUI_AUTH`          | `true`  | `false` disables user accounts (single-user mode)          |
 
-The LLMRouter host port defaults to **9000** because MTPLX and oMLX both
-serve on host port 8000 by default, which is also LLMRouter's in-container
+The LiteLLM host port defaults to **9001** because MTPLX and oMLX both
+serve on host port 8000 by default, which is also LiteLLM's in-container
 port.
 
 ### Backends
@@ -93,11 +92,10 @@ starting at 1). Each becomes a model group in the router:
 | `BACKEND_<N>_PORT`            | no       | `8000` (mtplx/omlx), `1234` (lmstudio)   |
 | `BACKEND_<N>_NAME`            | no       | `<type>-<port>`                          |
 | `BACKEND_<N>_API_KEY`         | no       | placeholder (set a real key if the server is started with auth) |
-| `BACKEND_<N>_CONTEXT_LENGTH`  | no       | `131072`                                 |
 
 Examples:
 
-```dotenv
+```bash
 # A mixed fleet, each server on its own port:
 BACKEND_1_TYPE=mtplx                     # port 8000 (default)
 BACKEND_2_TYPE=lmstudio                  # port 1234 (default)
@@ -119,20 +117,18 @@ set -a; . ./.env; set +a
 sh scripts/render-config.sh
 ```
 
-`llm-router/config.yaml` is generated and gitignored. The LLMRouter web UI
+`llm-router/config.yaml` is generated and gitignored. The LiteLLM web UI
 can still edit it at runtime, but `.env` is the source of truth — the file
 is re-rendered on every `docker compose up`, overwriting runtime edits.
-`model_names: []` (the render default) passes through whatever models the
-backend reports via `/v1/models`.
 
 ## Multi-user setup
 
 - **Accounts**: Open WebUI provides user registration, login, and
   admin-controlled roles. With `WEBUI_AUTH=true` (default), every user gets
   their own account and chat history.
-- **API keys**: LLMRouter's API keys are the gate to the backends.
+- **API keys**: LiteLLM's API keys are the gate to the backends.
   `ROUTER_API_KEY` is the default for all users. For per-user billing or
-  limits, create one LLMRouter key per user (LLMRouter UI → *API Keys*) and
+  limits, create one LiteLLM key per user (LiteLLM UI → *API Keys*) and
   set it on that user in Open WebUI (Admin → Users → user → *OpenAI API Key*).
 
 > Rotate the initial `sk-…` `ROUTER_API_KEY` in `.env` before exposing the
@@ -144,7 +140,7 @@ backend reports via `/v1/models`.
   MTPLX/oMLX are optimized for Apple Silicon, so the containers reach them
   via `host.docker.internal`.
 - State: Open WebUI data lives in the `open-webui-data` named volume;
-  LLMRouter config is bind-mounted from `./llm-router/config` (generated).
+  LiteLLM config is bind-mounted from `./llm-router/config.yaml` (generated).
 - To stop: `docker compose down` (add `-v` only if you want to erase
   Open WebUI data).
 
