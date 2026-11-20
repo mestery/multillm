@@ -51,13 +51,27 @@ while true; do
   [ -z "$HOST" ] && HOST="host.docker.internal"
 
   PORT=$(env_get "BACKEND_${N}_PORT")
-  [ -z "$PORT" ] && PORT="$([ "$TYPE" = "lmstudio" ] && echo 1234 || echo 8000)"
+  if [ -z "$PORT" ]; then
+    case "$TYPE" in
+      lmstudio)   PORT=1234 ;;
+      llamaserver) PORT=8080 ;;
+      *)          PORT=8000 ;;
+    esac
+  fi
 
   NAME=$(env_get "BACKEND_${N}_NAME")
   [ -z "$NAME" ] && NAME="${TYPE}-${PORT}"
 
   API_KEY=$(env_get "BACKEND_${N}_API_KEY")
   [ -z "$API_KEY" ] && API_KEY="placeholder"
+
+  # llamaserver runs as a Docker service inside the compose network;
+  # other backends run natively on the host and are reached via host.docker.internal.
+  if [ -z "$HOST" ] || [ "$HOST" = "host.docker.internal" ]; then
+    if [ "$TYPE" = "llamaserver" ]; then
+      HOST="llama-server"
+    fi
+  fi
 
   cat >> "$OUT" <<EOF
   # Backend $N: $TYPE ($NAME) — $HOST:$PORT
