@@ -21,7 +21,7 @@ services:
       - ./llm-router/config:/config
 
   llmrouter:
-    image: ghcr.io/berriai/litellm:latest
+    image: ghcr.io/berriai/litellm:v1.110.2
     container_name: llmrouter
     restart: unless-stopped
     ports:
@@ -38,7 +38,7 @@ services:
         condition: service_completed_successfully
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:git-0666e59
     container_name: open-webui
     restart: unless-stopped
     ports:

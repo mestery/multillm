@@ -131,8 +131,13 @@ is re-rendered on every `docker compose up`, overwriting runtime edits.
   limits, create one LiteLLM key per user (LiteLLM UI → *API Keys*) and
   set it on that user in Open WebUI (Admin → Users → user → *OpenAI API Key*).
 
-> Rotate the initial `sk-…` `ROUTER_API_KEY` in `.env` before exposing the
-> stack beyond a trusted LAN.
+> **Key hygiene.** Rotate `ROUTER_API_KEY` in `.env` before exposing the stack
+> beyond a trusted LAN. Never commit real keys: `.env` is gitignored and only
+> `.env.example` (placeholders) is tracked. If a real key ever leaks into git
+> history, treat it as compromised — rotate it in `.env`, then purge the old
+> value from every commit with [`git filter-repo`](https://github.com/newren/git-filter-repo)
+> (e.g. `git filter-repo --replace-text <(echo 'sk-LEAKED_KEY==>REDACTED')`)
+> and force-push.
 
 ## Notes
 

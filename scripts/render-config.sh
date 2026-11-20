@@ -13,8 +13,21 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# Source .env (handle comments and empty lines)
-eval "$(grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | sed "s/^/export /")"
+# Read a single KEY=VALUE from $ENV_FILE without eval. The value is treated
+# strictly as data (never executed), so a hostile .env cannot inject shell
+# commands. Prints the value with inline comments and surrounding quotes
+# stripped, or nothing if the key is absent.
+env_get() {
+  _eg_line=$(grep -E "^[ \t]*$1=" "$ENV_FILE" | head -n 1) || true
+  [ -z "$_eg_line" ] && return 0
+  _eg_val=${_eg_line#*=}
+  _eg_val=$(printf '%s' "$_eg_val" | sed -E 's/[ \t]+#.*$//; s/\r$//; s/^[ \t]+//; s/[ \t]+$//')
+  case "$_eg_val" in
+    \"*\") _eg_val=${_eg_val#\"}; _eg_val=${_eg_val%\"} ;;
+    \'*\') _eg_val=${_eg_val#\'}; _eg_val=${_eg_val%\'} ;;
+  esac
+  printf '%s' "$_eg_val"
+}
 
 OUT_DIR="$(dirname "$OUT")"
 mkdir -p "$OUT_DIR"
@@ -31,21 +44,19 @@ echo "model_list:" >> "$OUT"
 
 N=1
 while true; do
-  # Use eval to get the value of BACKEND_N_TYPE
-  eval "TYPE=\$BACKEND_${N}_TYPE" || true
+  TYPE=$(env_get "BACKEND_${N}_TYPE")
   [ -z "$TYPE" ] && break
 
-  # Get other variables using eval
-  eval "HOST=\$BACKEND_${N}_HOST" || true
+  HOST=$(env_get "BACKEND_${N}_HOST")
   [ -z "$HOST" ] && HOST="host.docker.internal"
 
-  eval "PORT=\$BACKEND_${N}_PORT" || true
+  PORT=$(env_get "BACKEND_${N}_PORT")
   [ -z "$PORT" ] && PORT="$([ "$TYPE" = "lmstudio" ] && echo 1234 || echo 8000)"
 
-  eval "NAME=\$BACKEND_${N}_NAME" || true
+  NAME=$(env_get "BACKEND_${N}_NAME")
   [ -z "$NAME" ] && NAME="${TYPE}-${PORT}"
 
-  eval "API_KEY=\$BACKEND_${N}_API_KEY" || true
+  API_KEY=$(env_get "BACKEND_${N}_API_KEY")
   [ -z "$API_KEY" ] && API_KEY="placeholder"
 
   cat >> "$OUT" <<EOF
