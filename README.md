@@ -40,6 +40,11 @@ rendered from your `.env` on every start via `scripts/render-config.sh`.
         ^ OpenAI-compatible /v1
         |
    LiteLLM reaches it via service name mlx-vlm:8080
+
+    NOTE: mlx-vlm cannot actually run inside a Linux container on Docker
+    Desktop for macOS — it requires the macOS Metal framework. The container
+    service is defined for future compatibility; see [mlx-vlm backend](#mlxvlm-backend)
+    below for the native alternative.
 ```
 
 ## Prerequisites
@@ -52,8 +57,9 @@ rendered from your `.env` on every start via `scripts/render-config.sh`.
   - **oMLX**: `omlx serve --model-dir ~/models` (default port `8000`, no API key unless started with `--api-key`)
   - **mlx**: mlx-vlm container (see [mlx-vlm backend](#mlxvlm-backend) below)
 - Port 9001, 3000, and 8080 free on the host (defaults used below).
-- Apple Silicon (M1/M2/M3/…) — the mlx-vlm container uses `platform: linux/arm64`
-  with GPU device requests so mlx can access Metal/NPU.
+- Apple Silicon (M1/M2/M3/…) recommended — the mlx-vlm container targets
+  `platform: linux/arm64`. See the [mlx-vlm backend](#mlxvlm-backend) section
+  for an important limitation on running it inside Docker.
 
 ## Quickstart
 
@@ -121,12 +127,44 @@ BACKEND_2_NAME=mtplx-fast
 
 ### mlx-vlm backend
 
-The `mlx` type runs an [mlx-vlm](https://github.com/ml-explore/mlx-vlm) server
-in a Docker container, using Metal/NPU acceleration on Apple Silicon.
+> ⚠️ **Important limitation — mlx-vlm cannot run inside Docker on macOS.**
+> Apple's [mlx](https://github.com/ml-explore/mlx) framework requires the
+> macOS Metal framework (`libmlx.so`), which is not available inside Linux
+> containers. Docker Desktop for macOS does **not** support GPU passthrough
+> to Linux containers, so `import mlx` fails with
+> `ImportError: libmlx.so: cannot open shared object file`.
+>
+> The `mlx-vlm` service is still defined in `docker-compose.yml` (so the stack
+> validates and the rest of the services start cleanly), but the container
+> **will exit immediately** on startup. For now, run mlx-vlm natively on the
+> host and configure it as an `lmstudio`-type backend (see below).
 
-The container is built from `Dockerfile.mlx-vlm` (`python:3.12-slim` on
-`linux/arm64`) and is started automatically as part of the `multillm` stack via
-`docker compose up`.
+The `mlx` type configures LiteLLM to reach an
+[mlx-vlm](https://github.com/ml-explore/mlx-vlm) server running in a Docker
+container. The container is built from `Dockerfile.mlx-vlm`
+(`python:3.12-slim` on `linux/arm64`) and is started automatically as part of
+the `multillm` stack via `docker compose up`.
+
+> **Native alternative (recommended):** Since the containerised mlx-vlm service
+> cannot start on Docker Desktop for macOS, run the server natively instead:
+>
+> ```bash
+> pip install "mlx-vlm[server]"
+> python -m mlx_vlm --model mlx-community/gemma-4-12B-it-qat-4bit --port 8080
+> ```
+>
+> Then configure it as an `lmstudio`-type backend in `.env` (it serves the same
+> OpenAI-compatible `/v1` API):
+>
+> ```bash
+> BACKEND_4_TYPE=lmstudio
+> BACKEND_4_HOST=host.docker.internal
+> BACKEND_4_PORT=8080
+> BACKEND_4_NAME=gemma4-12b-mlx
+> ```
+
+If you are on a platform where mlx-vlm can run in a container (e.g. Linux with
+a compatible GPU stack), the containerised service is configured as follows:
 
 1. **Ensure the model is in the Hugging Face cache** on the host:
 
@@ -192,11 +230,13 @@ is re-rendered on every `docker compose up`, overwriting runtime edits.
 - Backends (MTPLX, LM Studio, oMLX) run **natively** on the host (LM Studio is
   a GUI app, and MTPLX/oMLX are optimized for Apple Silicon), so containers
   reach them via `host.docker.internal`.
-- The `mlx` (mlx-vlm) backend runs as a Docker container (`platform: linux/arm64`
-  with GPU device requests). It is started automatically by `docker compose up`
-  and is reached by LiteLLM via the service name `mlx-vlm:8080`.
-- Apple Silicon: mlx-vlm uses Metal/NPU acceleration inside the container via
-  Docker Desktop's GPU passthrough.
+- The `mlx` (mlx-vlm) backend is defined as a Docker container (`platform: linux/arm64`)
+  in `docker-compose.yml`, but it **cannot start** on Docker Desktop for macOS
+  because mlx requires the macOS Metal framework, which is unavailable inside
+  Linux containers. The container exits immediately; the rest of the stack is
+  unaffected. See [mlx-vlm backend](#mlxvlm-backend) for the native alternative.
+- Apple Silicon: Metal/NPU acceleration works only when mlx-vlm runs natively
+  on the host, not inside a Docker container.
 - State: Open WebUI data lives in the `open-webui-data` named volume;
   LiteLLM config is bind-mounted from `./llm-router/config.yaml` (generated).
 - To stop: `docker compose down` (add `-v` only if you want to erase

@@ -37,24 +37,26 @@ services:
       llmrouter-init:
         condition: service_completed_successfully
 
+  # mlx-vlm: containerized mlx-vlm server for Gemma 4 12B.
+  #
+  # IMPORTANT: mlx-vlm cannot currently run inside a Docker container on
+  # Docker Desktop for macOS. Apple's mlx framework requires the macOS
+  # Metal framework (libmlx.so), which is not available inside Linux
+  # containers, and Docker Desktop does not support GPU passthrough to
+  # Linux containers. The service is kept here so the stack validates and
+  # starts cleanly, but the container will exit immediately on startup.
+  # See README.md "Notes" for details.
   mlx-vlm:
     build:
       context: .
       dockerfile: Dockerfile.mlx-vlm
     container_name: mlx-vlm
-    restart: unless-stopped
+    restart: "no"
     platform: linux/arm64
     environment:
       MLXVLM_MODEL: "${MLXVLM_MODEL:-mlx-community/gemma-4-12B-it-qat-4bit}"
     ports:
       - "${MLXVLM_HOST_PORT:-8080}:8080"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: gpu
-              count: all
-              capabilities: ["gpu"]
     volumes:
       - ${HOME:-/root}/.cache/huggingface:/root/.cache/huggingface:ro
     depends_on:
