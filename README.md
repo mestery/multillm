@@ -4,8 +4,8 @@ A multi-user LLM stack built from open-source parts:
 
 - **Backend** — one or more [MTPLX](https://github.com/youssofal/MTPLX),
   [LM Studio](https://lmstudio.ai), [oMLX](https://github.com/jundot/omlx),
-  and/or an [mlx-vlm](https://github.com/ml-explore/mlx-vlm) server running
-  natively on the host (Apple Silicon, Metal/NPU acceleration).
+  running natively on the host, and/or an [mlx-vlm](https://github.com/ml-explore/mlx-vlm)
+  server running in a Docker container with Metal/NPU acceleration (Apple Silicon).
 - **Router** — [LiteLLM](https://github.com/BerriAI/litellm), an
   OpenAI-compatible proxy that aggregates the backends, balances load between
   them, and gates access with API keys. Runs in Docker.
@@ -20,7 +20,7 @@ rendered from your `.env` on every start via `scripts/render-config.sh`.
 ```
                           host (Apple Silicon)
 +-------------------------+---------------------------+
-|  MTPLX :8000  |  LM Studio :1234  |  oMLX :8000  |  mlx-vlm :8080  …   |  native
+|  MTPLX :8000  |  LM Studio :1234  |  oMLX :8000  …  |  native
 +-----------------------------------------------------------+
         ^ OpenAI-compatible /v1
         |
@@ -35,18 +35,25 @@ rendered from your `.env` on every start via `scripts/render-config.sh`.
         ^
         |
    browsers / users
+
+        mlx-vlm :8080  (Docker container, linux/arm64, Metal/NPU)
+        ^ OpenAI-compatible /v1
+        |
+   LiteLLM reaches it via service name mlx-vlm:8080
 ```
 
 ## Prerequisites
 
 - Docker + Docker Compose (v2 plugin) on the host.
-- At least one backend — either running natively on the host or as an
-  mlx-vlm server:
+- At least one backend — either running natively on the host or as a
+  containerized mlx-vlm server:
   - **MTPLX**: `mtplx serve --port 8000` (base URL `http://<host>:8000/v1`)
   - **LM Studio**: Developer tab → *Start Server* (default port `1234`, base URL `http://<host>:1234/v1`)
   - **oMLX**: `omlx serve --model-dir ~/models` (default port `8000`, no API key unless started with `--api-key`)
-  - **mlx**: mlx-vlm server (see [mlx-vlm backend](#mlxvlm-backend) below)
+  - **mlx**: mlx-vlm container (see [mlx-vlm backend](#mlxvlm-backend) below)
 - Port 9001, 3000, and 8080 free on the host (defaults used below).
+- Apple Silicon (M1/M2/M3/…) — the mlx-vlm container uses `platform: linux/arm64`
+  with GPU device requests so mlx can access Metal/NPU.
 
 ## Quickstart
 
@@ -91,7 +98,7 @@ starting at 1). Each becomes a model group in the router:
 | Variable                      | Required | Default                                  |
 | ----------------------------- | -------- | ---------------------------------------- |
 | `BACKEND_<N>_TYPE`            | yes      | — (`mtplx` \| `lmstudio` \| `omlx` \| `mlx`) |
-| `BACKEND_<N>_HOST`            | no       | `host.docker.internal` |
+| `BACKEND_<N>_HOST`            | no       | `host.docker.internal` (`mlx-vlm` for type `mlx`) |
 | `BACKEND_<N>_PORT`            | no       | `8000` (mtplx/omlx), `1234` (lmstudio), `8080` (mlx) |
 | `BACKEND_<N>_NAME`            | no       | `<type>-<port>`                          |
 | `BACKEND_<N>_API_KEY`         | no       | placeholder (set a real key if the server is started with auth) |
@@ -115,23 +122,26 @@ BACKEND_2_NAME=mtplx-fast
 ### mlx-vlm backend
 
 The `mlx` type runs an [mlx-vlm](https://github.com/ml-explore/mlx-vlm) server
-natively on the host, using Metal/NPU acceleration on Apple Silicon.
+in a Docker container, using Metal/NPU acceleration on Apple Silicon.
 
-1. **Install mlx-vlm** (if not already installed):
+The container is built from `Dockerfile.mlx-vlm` (`python:3.12-slim` on
+`linux/arm64`) and is started automatically as part of the `multillm` stack via
+`docker compose up`.
 
-   ```bash
-   pip install mlx-vlm
+1. **Ensure the model is in the Hugging Face cache** on the host:
+
+   ```
+   ~/.cache/huggingface/hub/models--mlx-community--gemma-4-12B-it-qat-4bit
    ```
 
-2. **Start the server** with the Gemma 4 12B model (loaded from your existing
-   Hugging Face cache):
+   The cache is mounted read-only into the container.
+
+2. **Configure the model** (optional) in `.env`:
 
    ```bash
-   python -m mlx_vlm --model mlx-community/gemma-4-12B-it-qat-4bit --port 8080
+   MLXVLM_MODEL=mlx-community/gemma-4-12B-it-qat-4bit   # default
+   MLXVLM_HOST_PORT=8080                                  # host port, default 8080
    ```
-
-   > The model is loaded from the Hugging Face cache at
-   > `~/.cache/huggingface/hub/models--mlx-community--gemma-4-12B-it-qat-4bit`.
 
 3. **Enable the backend** in `.env`:
 
@@ -140,15 +150,15 @@ natively on the host, using Metal/NPU acceleration on Apple Silicon.
    BACKEND_4_NAME=gemma4-12b-mlx
    ```
 
-4. **Start the stack** (the mlx-vlm server runs natively; only the router and
-   UI run in Docker):
+4. **Start the stack**:
 
    ```bash
    docker compose up -d
    ```
 
-The mlx-vlm server exposes an OpenAI-compatible `/v1` API on `localhost:8080`,
-which LiteLLM reaches via `host.docker.internal:8080`.
+   The `mlx-vlm` service starts automatically, pulls the model from the HF
+   cache, and serves the OpenAI-compatible `/v1` API on container port 8080.
+   LiteLLM reaches it at `http://mlx-vlm:8080/v1` via the Docker service name.
 
 ```bash
 set -a; . ./.env; set +a
@@ -179,14 +189,14 @@ is re-rendered on every `docker compose up`, overwriting runtime edits.
 
 ## Notes
 
-- Backends run **natively** on the host (LM Studio is a GUI app, and
-  MTPLX/oMLX are optimized for Apple Silicon), so containers reach them via
-  `host.docker.internal`. The `mlx` backend also runs natively and is reached
-  via `host.docker.internal`.
-- The mlx-vlm server runs natively on the host (not in Docker). Start it
-  before `docker compose up` so LiteLLM can reach it at
-  `http://host.docker.internal:8080/v1`.
-- Apple Silicon: mlx-vlm uses Metal/NPU acceleration natively on the host.
+- Backends (MTPLX, LM Studio, oMLX) run **natively** on the host (LM Studio is
+  a GUI app, and MTPLX/oMLX are optimized for Apple Silicon), so containers
+  reach them via `host.docker.internal`.
+- The `mlx` (mlx-vlm) backend runs as a Docker container (`platform: linux/arm64`
+  with GPU device requests). It is started automatically by `docker compose up`
+  and is reached by LiteLLM via the service name `mlx-vlm:8080`.
+- Apple Silicon: mlx-vlm uses Metal/NPU acceleration inside the container via
+  Docker Desktop's GPU passthrough.
 - State: Open WebUI data lives in the `open-webui-data` named volume;
   LiteLLM config is bind-mounted from `./llm-router/config.yaml` (generated).
 - To stop: `docker compose down` (add `-v` only if you want to erase

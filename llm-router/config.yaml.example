@@ -17,10 +17,10 @@ model_list:
       api_base: http://host.docker.internal:1234/v1
       api_key: lmstudio
 
-  # MLX backend (mlx-vlm server on host port 8080)
-  # Start with: mlx-vlm serve ... (see README.md)
+  # MLX backend (mlx-vlm server running as a container, service name mlx-vlm:8080)
+  # The mlx-vlm service is started automatically by `docker compose up`.
   - model_name: mlx-8080
     litellm_params:
       model: openai/mlx-8080
-      api_base: http://host.docker.internal:8080/v1
+      api_base: http://mlx-vlm:8080/v1
       api_key: placeholder

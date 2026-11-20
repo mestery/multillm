@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Container image for the mlx-vlm inference server.
+# Builds on python:3.12-slim (linux/arm64) so it runs natively on Apple
+# Silicon where the mlx package can use Metal/NPU acceleration.
+FROM python:3.12-slim
+
+# Install build essentials needed by mlx-vlm's dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# mlx-vlm pulls in mlx (macOS/Apple-Silicon only) and an OpenAI-compatible
+# server (mlx-vlm[server]).
+RUN pip install --no-cache-dir "mlx-vlm[server]"
+
+# Container port used by the mlx-vlm server.
+EXPOSE 8080
+
+# The ENTRYPOINT references MLXVLM_MODEL and MLXVLM_PORT directly (with
+# defaults) so that runtime overrides from docker-compose.yml take effect.
+# We do NOT use ENV here — ENV values are baked at build time and would
+# shadow any runtime environment variable set by the compose file.
+ENTRYPOINT ["sh", "-c", "exec python -m mlx_vlm --model \"${MLXVLM_MODEL:-mlx-community/gemma-4-12B-it-qat-4bit}\" --port \"${MLXVLM_PORT:-8080}\""]

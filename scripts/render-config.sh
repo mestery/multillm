@@ -48,7 +48,12 @@ while true; do
   [ -z "$TYPE" ] && break
 
   HOST=$(env_get "BACKEND_${N}_HOST")
-  [ -z "$HOST" ] && HOST="host.docker.internal"
+  if [ -z "$HOST" ]; then
+    case "$TYPE" in
+      mlx)        HOST="mlx-vlm" ;;
+      *)          HOST="host.docker.internal" ;;
+    esac
+  fi
 
   PORT=$(env_get "BACKEND_${N}_PORT")
   if [ -z "$PORT" ]; then

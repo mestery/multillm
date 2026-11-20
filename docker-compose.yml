@@ -37,6 +37,30 @@ services:
       llmrouter-init:
         condition: service_completed_successfully
 
+  mlx-vlm:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlx-vlm
+    container_name: mlx-vlm
+    restart: unless-stopped
+    platform: linux/arm64
+    environment:
+      MLXVLM_MODEL: "${MLXVLM_MODEL:-mlx-community/gemma-4-12B-it-qat-4bit}"
+    ports:
+      - "${MLXVLM_HOST_PORT:-8080}:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: gpu
+              count: all
+              capabilities: ["gpu"]
+    volumes:
+      - ${HOME:-/root}/.cache/huggingface:/root/.cache/huggingface:ro
+    depends_on:
+      llmrouter-init:
+        condition: service_completed_successfully
+
   open-webui:
     image: ghcr.io/open-webui/open-webui:git-0666e59
     container_name: open-webui
