@@ -4,9 +4,8 @@ A multi-user LLM stack built from open-source parts:
 
 - **Backend** — one or more [MTPLX](https://github.com/youssofal/MTPLX),
   [LM Studio](https://lmstudio.ai), [oMLX](https://github.com/jundot/omlx),
-  and/or a containerized [llama-server](https://github.com/ggerganov/llama.cpp)
-  running a GGUF model. MTPLX/LM Studio/oMLX run natively on the host
-  (Apple Silicon); llama-server runs in Docker (CPU-only).
+  and/or an [mlx-vlm](https://github.com/ml-explore/mlx-vlm) server running
+  natively on the host (Apple Silicon, Metal/NPU acceleration).
 - **Router** — [LiteLLM](https://github.com/BerriAI/litellm), an
   OpenAI-compatible proxy that aggregates the backends, balances load between
   them, and gates access with API keys. Runs in Docker.
@@ -21,8 +20,8 @@ rendered from your `.env` on every start via `scripts/render-config.sh`.
 ```
                           host (Apple Silicon)
 +-------------------------+---------------------------+
-|  MTPLX :8000  |  LM Studio :1234  |  oMLX :8000  |  llama-server :8080  …   |  native / docker
-+-------------------------+---------------------------+
+|  MTPLX :8000  |  LM Studio :1234  |  oMLX :8000  |  mlx-vlm :8080  …   |  native
++-----------------------------------------------------------+
         ^ OpenAI-compatible /v1
         |
 +-------+---------+  docker
@@ -41,12 +40,12 @@ rendered from your `.env` on every start via `scripts/render-config.sh`.
 ## Prerequisites
 
 - Docker + Docker Compose (v2 plugin) on the host.
-- At least one backend — either running natively on the host or as a
-  containerized llama-server:
+- At least one backend — either running natively on the host or as an
+  mlx-vlm server:
   - **MTPLX**: `mtplx serve --port 8000` (base URL `http://<host>:8000/v1`)
   - **LM Studio**: Developer tab → *Start Server* (default port `1234`, base URL `http://<host>:1234/v1`)
   - **oMLX**: `omlx serve --model-dir ~/models` (default port `8000`, no API key unless started with `--api-key`)
-  - **llama-server**: containerized (see [llama-server backend](#llamaserver-backend) below)
+  - **mlx**: mlx-vlm server (see [mlx-vlm backend](#mlxvlm-backend) below)
 - Port 9001, 3000, and 8080 free on the host (defaults used below).
 
 ## Quickstart
@@ -91,9 +90,9 @@ starting at 1). Each becomes a model group in the router:
 
 | Variable                      | Required | Default                                  |
 | ----------------------------- | -------- | ---------------------------------------- |
-| `BACKEND_<N>_TYPE`            | yes      | — (`mtplx` \| `lmstudio` \| `omlx` \| `llamaserver`) |
-| `BACKEND_<N>_HOST`            | no       | `host.docker.internal` (`llamaserver` → `llama-server`) |
-| `BACKEND_<N>_PORT`            | no       | `8000` (mtplx/omlx), `1234` (lmstudio), `8080` (llamaserver) |
+| `BACKEND_<N>_TYPE`            | yes      | — (`mtplx` \| `lmstudio` \| `omlx` \| `mlx`) |
+| `BACKEND_<N>_HOST`            | no       | `host.docker.internal` |
+| `BACKEND_<N>_PORT`            | no       | `8000` (mtplx/omlx), `1234` (lmstudio), `8080` (mlx) |
 | `BACKEND_<N>_NAME`            | no       | `<type>-<port>`                          |
 | `BACKEND_<N>_API_KEY`         | no       | placeholder (set a real key if the server is started with auth) |
 
@@ -113,54 +112,43 @@ BACKEND_2_PORT=8100
 BACKEND_2_NAME=mtplx-fast
 ```
 
-### llamaserver backend
+### mlx-vlm backend
 
-The `llamaserver` type runs a [llama.cpp](https://github.com/ggerganov/llama.cpp) server in a
-Docker container via the `llama-server` service (profile-gated, off by default).
+The `mlx` type runs an [mlx-vlm](https://github.com/ml-explore/mlx-vlm) server
+natively on the host, using Metal/NPU acceleration on Apple Silicon.
 
-1. **Download a GGUF model** from
-   [google/gemma-4-12b-it-GGUF](https://huggingface.co/google/gemma-4-12b-it-GGUF)
-   (or any other GGUF model) to `./models/llama-server/`:
+1. **Install mlx-vlm** (if not already installed):
 
    ```bash
-   mkdir -p models/llama-server
-   # Example: Gemma 4 12B, Q4_K_M quantization (~8 GB)
-   curl -L -o models/llama-server/gemma4-12b-it-Q4_K_M.gguf \
-     https://huggingface.co/google/gemma-4-12b-it-GGUF/resolve/main/gemma4-12b-it-Q4_K_M.gguf
+   pip install mlx-vlm
    ```
 
-   Other quantizations (Q3_K_S, Q4_K_M, Q5_K_S, etc.) are available — pick one
-   that fits your disk and RAM budget.
-
-2. **Enable the backend** in `.env`:
+2. **Start the server** with the Gemma 4 12B model (loaded from your existing
+   Hugging Face cache):
 
    ```bash
-   BACKEND_4_TYPE=llamaserver
-   BACKEND_4_NAME=gemma4-12b-llamaserver
+   python -m mlx_vlm --model mlx-community/gemma-4-12B-it-qat-4bit --port 8080
    ```
 
-3. **Start the container** (along with the rest of the stack):
+   > The model is loaded from the Hugging Face cache at
+   > `~/.cache/huggingface/hub/models--mlx-community--gemma-4-12B-it-qat-4bit`.
+
+3. **Enable the backend** in `.env`:
 
    ```bash
-   docker compose --profile llama-server up -d
+   BACKEND_4_TYPE=mlx
+   BACKEND_4_NAME=gemma4-12b-mlx
    ```
 
-Optional environment variables:
+4. **Start the stack** (the mlx-vlm server runs natively; only the router and
+   UI run in Docker):
 
-| Variable                | Default                  | Meaning                                        |
-| ----------------------- | ------------------------ | ---------------------------------------------- |
-| `LLAMASERVER_MODEL`     | `gemma4-12b-it-Q4_K_M.gguf`  | GGUF filename inside `/models`                 |
-| `LLAMASERVER_THREADS`   | `4`                      | CPU threads to use for inference               |
-| `LLAMASERVER_HOST_PORT` | `8080`                   | Host port for the llama-server container       |
+   ```bash
+   docker compose up -d
+   ```
 
-> **Apple Silicon / CPU-only.** The `llama-server` container runs a Linux
-> image, so Metal/NPU acceleration is **not available** inside it — inference
-> is CPU-only. If you need GPU acceleration on Apple Silicon, run llama.cpp
-> natively on the host instead (via `omlx` or `mtplx`) rather than as a
-> containerized `llamaserver`.
-
-Rendering is done by `scripts/render-config.sh` (plain POSIX sh); you can
-run it on the host for a quick check:
+The mlx-vlm server exposes an OpenAI-compatible `/v1` API on `localhost:8080`,
+which LiteLLM reaches via `host.docker.internal:8080`.
 
 ```bash
 set -a; . ./.env; set +a
@@ -193,12 +181,12 @@ is re-rendered on every `docker compose up`, overwriting runtime edits.
 
 - Backends run **natively** on the host (LM Studio is a GUI app, and
   MTPLX/oMLX are optimized for Apple Silicon), so containers reach them via
-  `host.docker.internal`. The `llamaserver` backend is the exception — it
-  runs inside Docker and is reached via its service name (`llama-server`).
-- The `llamaserver` service is profile-gated (`profiles: [llama-server]`) and
-  only starts when you run `docker compose --profile llama-server up`.
-- Apple Silicon: the `llamaserver` container runs Linux and is **CPU-only** —
-  Metal/NPU acceleration is not available inside the container.
+  `host.docker.internal`. The `mlx` backend also runs natively and is reached
+  via `host.docker.internal`.
+- The mlx-vlm server runs natively on the host (not in Docker). Start it
+  before `docker compose up` so LiteLLM can reach it at
+  `http://host.docker.internal:8080/v1`.
+- Apple Silicon: mlx-vlm uses Metal/NPU acceleration natively on the host.
 - State: Open WebUI data lives in the `open-webui-data` named volume;
   LiteLLM config is bind-mounted from `./llm-router/config.yaml` (generated).
 - To stop: `docker compose down` (add `-v` only if you want to erase

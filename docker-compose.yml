@@ -36,29 +36,6 @@ services:
     depends_on:
       llmrouter-init:
         condition: service_completed_successfully
-      llama-server:
-        condition: service_started
-
-  # Optional containerized llama-server backend (ghcr.io/ggml-org/llama.cpp:server).
-  # Start it with: docker compose --profile llama-server up
-  # Model files are bind-mounted from ./models/llama-server/ (see README.md).
-  llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:server:latest
-    container_name: llama-server
-    restart: unless-stopped
-    profiles:
-      - llama-server
-    ports:
-      - "${LLAMASERVER_HOST_PORT:-8080}:8080"
-    command: >
-      --model /models/${LLAMASERVER_MODEL:-gemma4-12b-it-Q4_K_M.gguf}
-      --host 0.0.0.0
-      --port 8080
-      --threads ${LLAMASERVER_THREADS:-4}
-    volumes:
-      - ./models/llama-server:/models:ro
-    depends_on:
-      - llmrouter-init
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:git-0666e59
